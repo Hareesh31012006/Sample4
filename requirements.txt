@@ -7,4 +7,5 @@ torch
 transformers
 textblob
 gnews
-alpha_vantage
+yfinance
+requests
