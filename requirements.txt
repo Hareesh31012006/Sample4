@@ -4,8 +4,7 @@ numpy
 matplotlib
 seaborn
 torch
-transformers
 textblob
+transformers
 gnews
-yfinance
-requests
+alpha_vantage
