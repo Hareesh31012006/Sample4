@@ -1,5 +1,5 @@
 # =========================================================
-# 📊 Stock Sentiment & Price Prediction Dashboard
+# 📊 Stock Sentiment & Price Prediction Dashboard (Stable)
 # =========================================================
 
 import os
@@ -9,18 +9,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from alpha_vantage.timeseries import TimeSeries
+import yfinance as yf
 from gnews import GNews
 from textblob import TextBlob
 from transformers import pipeline
 import torch
 import torch.nn as nn
 from datetime import datetime, timedelta
-
-# =========================================================
-# 🔑 SET YOUR API KEY HERE
-# =========================================================
-ALPHA_VANTAGE_API_KEY = "9EJ41V9XS6Q5ZN1Y"  # 👈 Replace with your key
 
 # =========================================================
 # 🏗️ Streamlit App Setup
@@ -32,17 +27,17 @@ st.write("Predict stock trends using sentiment and deep learning models.")
 # =========================================================
 # 🧠 Sentiment Analysis Utilities
 # =========================================================
-@st.cache_data
-def get_textblob_sentiment(text):
-    """Compute sentiment using TextBlob (simple polarity)."""
-    return TextBlob(text).sentiment.polarity
-
-@st.cache_data
+@st.cache_resource
 def get_hf_sentiment():
     """Load Hugging Face sentiment pipeline (cached)."""
     return pipeline("sentiment-analysis")
 
 hf_pipeline = get_hf_sentiment()
+
+@st.cache_data
+def get_textblob_sentiment(text):
+    """Compute sentiment using TextBlob (simple polarity)."""
+    return TextBlob(text).sentiment.polarity
 
 # =========================================================
 # 📰 Fetch News
@@ -53,26 +48,28 @@ def fetch_news(symbol):
     return google_news.get_news(symbol)
 
 # =========================================================
-# 💹 Fetch Stock Data
+# 💹 Fetch Stock Data (Yahoo Finance)
 # =========================================================
 @st.cache_data
 def fetch_stock_data(symbol):
-    ts = TimeSeries(key=ALPHA_VANTAGE_API_KEY, output_format="pandas")
-    data, _ = ts.get_daily(symbol=symbol, outputsize="compact")
+    """Fetch stock data using Yahoo Finance."""
+    data = yf.download(symbol, period="6mo", interval="1d")
     data = data.rename(columns={
-        '1. open': 'Open',
-        '2. high': 'High',
-        '3. low': 'Low',
-        '4. close': 'Close',
-        '5. volume': 'Volume'
+        "Open": "Open",
+        "High": "High",
+        "Low": "Low",
+        "Close": "Close",
+        "Volume": "Volume"
     })
     data.index = pd.to_datetime(data.index)
-    return data.sort_index()
+    return data.dropna().sort_index()
 
 # =========================================================
-# 🧮 Simple PyTorch Regression Model (Fixed)
+# 🧮 Simple PyTorch Regression Model
 # =========================================================
-def train_model(X, y):
+def train_model(X, y, seed=42):
+    """Train a simple linear regression model with fixed seed."""
+    torch.manual_seed(seed)
     model = nn.Linear(X.shape[1], 1)
     opt = torch.optim.Adam(model.parameters(), lr=0.01)
     loss_fn = nn.MSELoss()
@@ -102,7 +99,7 @@ def analyze_stock(symbol):
         val = 1 if hf == "POSITIVE" else -1 if hf == "NEGATIVE" else 0
         sentiments.append((text, tb, val))
     sent_df = pd.DataFrame(sentiments, columns=["Text", "TextBlob", "HF_Sentiment"])
-    avg_sentiment = sent_df[["TextBlob", "HF_Sentiment"]].mean().mean()
+    avg_sentiment = sent_df["TextBlob"].mean() + sent_df["HF_Sentiment"].mean()
 
     # 3️⃣ Prepare data for model
     df["Return"] = df["Close"].pct_change()
@@ -110,14 +107,14 @@ def analyze_stock(symbol):
     X = torch.tensor(df[["Open", "High", "Low", "Volume"]].values, dtype=torch.float32)
     y = torch.tensor(df["Close"].values.reshape(-1, 1), dtype=torch.float32)
 
-    # 4️⃣ Train model
-    model = train_model(X, y)
+    # 4️⃣ Train model (deterministic)
+    model = train_model(X, y, seed=123)
 
     # 5️⃣ Predict next-day price
     last_row = torch.tensor(df.iloc[-1][["Open", "High", "Low", "Volume"]].values, dtype=torch.float32)
     next_pred = model(last_row.unsqueeze(0)).item()
 
-    # 6️⃣ Final suggestion
+    # 6️⃣ Final suggestion (deterministic)
     suggestion = "📈 Buy" if next_pred > df["Close"].iloc[-1] and avg_sentiment > 0 else "📉 Sell"
     return df, sent_df, next_pred, suggestion
 
@@ -148,4 +145,4 @@ if st.button("Analyze"):
 # 🧾 Footer
 # =========================================================
 st.markdown("---")
-st.caption("Built with ❤️ using Streamlit, PyTorch, and HuggingFace.")
+st.caption("Built with ❤️ using Streamlit, PyTorch, HuggingFace, and Yahoo Finance.")
